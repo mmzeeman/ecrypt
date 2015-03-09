@@ -1,0 +1,12 @@
+{application, ecrypt,
+ [
+  {description, "openssl evp crypto nif interface"},
+  {vsn, "1"},
+  {modules, [ecrypt, ecrypt_nif]},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
