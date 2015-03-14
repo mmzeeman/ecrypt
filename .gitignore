@@ -1,2 +1,5 @@
+rebar
+ebin
 c_src/*.o
 .eunit
+priv/*.so

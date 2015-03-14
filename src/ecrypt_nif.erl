@@ -22,21 +22,34 @@
 
 -export([
     new_cipher_ctx/0,
-    cipher_init/2,
+    cleanup_cipher_ctx/1,
+
     block_size/1,
     key_length/1,
     iv_length/1,
-    cipher_ctx_cleanup/1,
-    nid/1
+    nid/1,
+
+    cipher_info/1,
+
+    cipher_init/2,
+    cipher_init/5,
+    cipher_update/2,
+    cipher_final/1
 ]).
 
 -on_load(init/0).
 
-new_cipher_ctx() ->
-    exit(nif_library_not_loaded).
+cipher_info(Name) when is_binary(Name) orelse is_list(Name) ->
+    {ok, Ctx} = new_cipher_ctx(),
+    cipher_init(Ctx, Name),
+    Info = cipher_info_ctx(Ctx),
+    cleanup_cipher_ctx(Ctx),
+    Info.
 
-cipher_init(_Ctx, _Name) ->
-    exit(nif_library_not_loaded).
+cipher_info_ctx(Ctx) ->
+    [{block_size, block_size(Ctx)},
+        {key_length, key_length(Ctx)},
+        {iv_length, iv_length(Ctx)}].
 
 block_size(_Ctx) ->
     exit(nif_library_not_loaded).
@@ -47,10 +60,25 @@ key_length(_Ctx) ->
 iv_length(_Ctx) ->
     exit(nif_library_not_loaded).
 
-cipher_ctx_cleanup(_Ctx) ->
+nid(_Ctx) ->
     exit(nif_library_not_loaded).
 
-nid(_Ctx) ->
+new_cipher_ctx() ->
+    exit(nif_library_not_loaded).
+
+cleanup_cipher_ctx(_Ctx) ->
+    exit(nif_library_not_loaded).
+
+cipher_init(_Ctx, _Alg) ->
+    exit(nif_library_not_loaded).
+
+cipher_init(_Ctx, _Alg, _Key, _Iv, _Encrypt) ->
+    exit(nif_library_not_loaded).
+
+cipher_update(_Ctx, _Data) ->
+    exit(nif_library_not_loaded).
+
+cipher_final(_Ctx) ->
     exit(nif_library_not_loaded).
 
 init() ->
@@ -60,4 +88,6 @@ init() ->
                       Dir -> filename:join(Dir, NifName)
                   end,
     ok = erlang:load_nif(NifFileName, 0).
+
+
 

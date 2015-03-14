@@ -24,7 +24,26 @@
 
 #include <openssl/evp.h>
 
+/* This shall correspond to the similar macro in crypto.erl */
+/* Current value is: erlang:system_info(context_reductions) * 10 */
+#define MAX_BYTES_TO_NIF 20000
+
+#define CONSUME_REDS(NifEnv, Ibin)                      \
+do {                                                    \
+    int _cost = ((Ibin).size  * 100) / MAX_BYTES_TO_NIF;\
+    if (_cost) {                                        \
+        (void) enif_consume_timeslice((NifEnv),         \
+                  (_cost > 100) ? 100 : _cost);         \
+    }                                                   \
+} while (0)
+
 static ErlNifResourceType *evp_cipher_ctx_type = NULL;
+
+/* atoms */
+static ERL_NIF_TERM atom_encrypt;
+static ERL_NIF_TERM atom_decrypt;
+static ERL_NIF_TERM atom_ok;
+static ERL_NIF_TERM atom_error;
 
 static ERL_NIF_TERM
 make_atom(ErlNifEnv *env, const char *atom_name)
@@ -40,15 +59,13 @@ make_atom(ErlNifEnv *env, const char *atom_name)
 static ERL_NIF_TERM
 make_ok_tuple(ErlNifEnv *env, ERL_NIF_TERM value)
 {
-    return enif_make_tuple2(env, make_atom(env, "ok"), 
-            value);
+    return enif_make_tuple2(env, atom_ok, value);
 }
 
 static ERL_NIF_TERM
 make_error_tuple(ErlNifEnv *env, const char *reason)
 {
-    return enif_make_tuple2(env, make_atom(env, "error"), 
-            make_atom(env, reason));
+    return enif_make_tuple2(env, atom_error, make_atom(env, reason));
 }
 
 static void
@@ -78,6 +95,24 @@ ecrypt_new_cipher_ctx(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     enif_release_resource(new);
 
     return make_ok_tuple(env, ctx);
+}
+
+static ERL_NIF_TERM
+ecrypt_cleanup_cipher_ctx(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    EVP_CIPHER_CTX *ctx;
+
+    if(argc != 1)
+        return enif_make_badarg(env);
+
+    if(!enif_get_resource(env, argv[0], evp_cipher_ctx_type, (void **) &ctx))
+        return enif_make_badarg(env);
+
+    if(EVP_CIPHER_CTX_cleanup(ctx) != 1) {
+        return atom_error;
+    }
+
+    return atom_ok;
 }
 
 static ERL_NIF_TERM
@@ -154,7 +189,6 @@ static ERL_NIF_TERM
 ecrypt_cipher_ctx_cleanup(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     EVP_CIPHER_CTX *ctx;
-    int nid;
     
     if(argc != 1)
         return enif_make_badarg(env);
@@ -166,11 +200,11 @@ ecrypt_cipher_ctx_cleanup(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         make_error_tuple(env, "cleanup_error");
     }
 
-    return make_atom(env, "ok");
+    return atom_ok;
 }
 
 static ERL_NIF_TERM
-ecrypt_cipher_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+ecrypt_cipher_init2(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     EVP_CIPHER_CTX *ctx;
     ErlNifBinary bin;
@@ -186,13 +220,113 @@ ecrypt_cipher_init(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     if(!enif_inspect_iolist_as_binary(env, enif_make_list2(env, argv[1], eos), &bin))
         return enif_make_badarg(env);
 
-    cipher = EVP_get_cipherbyname(bin.data);
+    cipher = EVP_get_cipherbyname((char*) bin.data);
     if(!cipher)
         return make_error_tuple(env, "unknown_cipher");
 
-    EVP_CipherInit_ex(ctx, cipher, NULL, NULL, NULL, 1);
+    EVP_CipherInit_ex(ctx, cipher, NULL, NULL, NULL, -1);
 
-    return make_atom(env, "ok");
+    return atom_ok;
+}
+
+static ERL_NIF_TERM
+ecrypt_cipher_init5(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    EVP_CIPHER_CTX *ctx;
+    ErlNifBinary alg;
+    ErlNifBinary key;
+    ErlNifBinary iv;
+    ERL_NIF_TERM eos = enif_make_int(env, 0);
+    EVP_CIPHER *cipher; 
+    int enc;
+
+    if(argc != 5)
+        return enif_make_badarg(env);
+
+    if(!enif_get_resource(env, argv[0], evp_cipher_ctx_type, (void **) &ctx))
+        return enif_make_badarg(env);
+
+    if(!enif_inspect_iolist_as_binary(env, enif_make_list2(env, argv[1], eos), &alg))
+        return enif_make_badarg(env);
+
+    if(!enif_inspect_iolist_as_binary(env, argv[2], &key))
+        return enif_make_badarg(env);
+
+    if(!enif_inspect_iolist_as_binary(env, argv[3], &iv))
+        return enif_make_badarg(env);
+
+    if(enif_is_identical(atom_encrypt, argv[4])) {
+        enc = 1;
+    } else if(enif_is_identical(atom_decrypt, argv[4])) {
+        enc = 0;
+    } else {
+        return enif_make_badarg(env);
+    }
+
+    cipher = EVP_get_cipherbyname((char*) alg.data);
+    if(!cipher)
+        return make_error_tuple(env, "unknown_cipher");
+
+    if(EVP_CIPHER_key_length(cipher) != key.size)
+        return make_error_tuple(env, "key_length");
+
+    if(EVP_CIPHER_iv_length(cipher) != iv.size)
+        return make_error_tuple(env, "iv_length");
+
+    if(0 == EVP_CipherInit(ctx, cipher, key.data, iv.data, enc))
+        return make_error_tuple(env, "init");
+
+    return atom_ok;
+}
+
+static ERL_NIF_TERM
+ecrypt_cipher_update(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    EVP_CIPHER_CTX *ctx;
+    ErlNifBinary data;
+    int outl;
+    unsigned char * buf;
+    ERL_NIF_TERM bin_buf;
+
+    if(argc != 2)
+        return enif_make_badarg(env);
+
+    if(!enif_get_resource(env, argv[0], evp_cipher_ctx_type, (void **) &ctx))
+        return enif_make_badarg(env);
+
+    if(!enif_inspect_iolist_as_binary(env, argv[1], &data))
+        return enif_make_badarg(env);
+
+    outl = EVP_CIPHER_CTX_block_size(ctx) + data.size - 1;
+    if(0 == EVP_CipherUpdate(ctx, enif_make_new_binary(env, outl, &bin_buf), 
+            &outl, data.data, data.size)) {
+        return enif_make_badarg(env);
+    }
+
+    CONSUME_REDS(env, data);
+
+    return enif_make_sub_binary(env, bin_buf, 0, outl);
+}
+
+static ERL_NIF_TERM
+ecrypt_cipher_final(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    EVP_CIPHER_CTX *ctx;
+    ERL_NIF_TERM bin_buf;
+    int outl;
+
+    if(argc != 1)
+        return enif_make_badarg(env);
+
+    if(!enif_get_resource(env, argv[0], evp_cipher_ctx_type, (void **) &ctx))
+        return enif_make_badarg(env);
+
+    if(0 == EVP_CipherFinal(ctx, 
+            enif_make_new_binary(env, EVP_CIPHER_CTX_block_size(ctx), &bin_buf), &outl)) {
+        return enif_make_badarg(env);
+    }
+
+    return enif_make_sub_binary(env, bin_buf, 0, outl);
 }
 
 
@@ -206,11 +340,19 @@ on_load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
 
     rt = enif_open_resource_type(env, "ecrypt", "evp_cipher_ctx",
             destruct_evp_cipher_ctx, ERL_NIF_RT_CREATE, NULL);
-    if(!rt) return -1;
+    if(!rt) 
+        return -1;
 
     evp_cipher_ctx_type = rt;
 
+    ENGINE_load_builtin_engines();
+    ENGINE_register_all_complete();
     OpenSSL_add_all_ciphers();
+
+    atom_encrypt = enif_make_atom(env, "encrypt");
+    atom_decrypt = enif_make_atom(env, "decrypt");
+    atom_ok = enif_make_atom(env, "ok");
+    atom_error = enif_make_atom(env, "error");
 
     return 0;
 }
@@ -227,14 +369,12 @@ static int on_upgrade(ErlNifEnv* env, void** priv, void** old_priv_data, ERL_NIF
 
 static ErlNifFunc nif_funcs[] = {
     {"new_cipher_ctx", 0, ecrypt_new_cipher_ctx},
+    {"cleanup_cipher_ctx", 1, ecrypt_cleanup_cipher_ctx},
 
-
-    //{"encrypt_init", 0, ecrypt_encrypt_init},
-    //{"encrypt_update", 0, ecrypt_encrypt_update},
-    //{"encrypt_final", 0, ecrypt_encrypt_final},
-
-    {"cipher_init", 2, ecrypt_cipher_init},
-    {"cipher_ctx_cleanup", 1, ecrypt_cipher_ctx_cleanup},
+    {"cipher_init", 2, ecrypt_cipher_init2},
+    {"cipher_init", 5, ecrypt_cipher_init5},
+    {"cipher_update", 2, ecrypt_cipher_update},
+    {"cipher_final", 1, ecrypt_cipher_final},
 
     {"nid", 1, ecrypt_nid},
     {"block_size", 1, ecrypt_block_size},
