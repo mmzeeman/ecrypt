@@ -32,7 +32,7 @@ cipher_init_test() ->
 
     ok.
 
-encrypt_test() ->
+encrypt_ttest() ->
     {ok, Ctx} = ecrypt_nif:new_cipher_ctx(),
 
     ?assertEqual([{block_size, 16}, 
@@ -67,9 +67,9 @@ speed_test() ->
 
     Mb = crypto:rand_bytes(50*1024*1024),
     T1 = os:timestamp(),
-    %% EncData = encrypt_new(Ctx, Mb),
-    EncData = ecrypt_nif:cipher_update(Ctx, Mb),
-    Final = ecrypt_nif:cipher_final(Ctx),
+    EncData = encrypt_new(Ctx, Mb),
+    %% EncData = ecrypt_nif:cipher_update(Ctx, Mb),
+    %% Final = ecrypt_nif:cipher_final(Ctx),
     T2 = os:timestamp(),
 
     io:fwrite(standard_error, "Encrypted: ~p, Time: ~.2fms~n", [erlang:byte_size(EncData), 
