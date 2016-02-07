@@ -32,12 +32,15 @@
     cipher_info/1,
 
     cipher_init/2,
-    cipher_init/5,
+
+    cipher_init/6,
     cipher_update/2,
     cipher_final/1
 ]).
 
 -on_load(init/0).
+
+-type cipher_ctx() :: term().
 
 cipher_info(Name) when is_binary(Name) orelse is_list(Name) ->
     {ok, Ctx} = new_cipher_ctx(),
@@ -48,8 +51,8 @@ cipher_info(Name) when is_binary(Name) orelse is_list(Name) ->
 
 cipher_info_ctx(Ctx) ->
     [{block_size, block_size(Ctx)},
-        {key_length, key_length(Ctx)},
-        {iv_length, iv_length(Ctx)}].
+     {key_length, key_length(Ctx)},
+     {iv_length, iv_length(Ctx)}].
 
 block_size(_Ctx) ->
     exit(nif_library_not_loaded).
@@ -72,12 +75,15 @@ cleanup_cipher_ctx(_Ctx) ->
 cipher_init(_Ctx, _Alg) ->
     exit(nif_library_not_loaded).
 
-cipher_init(_Ctx, _Alg, _Key, _Iv, _Encrypt) ->
+-spec cipher_init(cipher_ctx(), binary(), binary(), binary(), encrypt | decrypt, boolean()) -> ok. 
+cipher_init(_Ctx, _Alg, _Key, _Iv, _Encrypt, _Padding) ->
     exit(nif_library_not_loaded).
 
+-spec cipher_update(cipher_ctx(), iolist()) -> binary().
 cipher_update(_Ctx, _Data) ->
     exit(nif_library_not_loaded).
 
+-spec cipher_final(cipher_ctx()) -> binary().
 cipher_final(_Ctx) ->
     exit(nif_library_not_loaded).
 
@@ -88,6 +94,5 @@ init() ->
                       Dir -> filename:join(Dir, NifName)
                   end,
     ok = erlang:load_nif(NifFileName, 0).
-
 
 

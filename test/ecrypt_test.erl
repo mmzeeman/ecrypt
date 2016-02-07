@@ -32,17 +32,22 @@ cipher_init_test() ->
 
     ok.
 
-encrypt_ttest() ->
+encrypt_test() ->
     {ok, Ctx} = ecrypt_nif:new_cipher_ctx(),
 
     ?assertEqual([{block_size, 16}, 
             {key_length, 24}, 
             {iv_length, 16}], ecrypt_nif:cipher_info(<<"aes-192-cbc">>)),
 
+    Iv = <<"0123456701234567">>,
     ok = ecrypt_nif:cipher_init(Ctx, <<"aes-192-cbc">>, 
-        <<"012345670123456701234567">>, <<"0123456701234567">>, encrypt),
+        <<"012345670123456701234567">>, <<"0123456701234567">>, encrypt, true),
 
-    ?assertEqual(ok, ecrypt_nif:cipher_update(Ctx, <<"012345678012345678">>)),
+    ?assertEqual(<<"0123456701234567">>, Iv),
+
+    ecrypt_nif:cipher_update(Ctx, <<"012345678012345678">>),
+
+    ?assertEqual(<<"0123456701234567">>, Iv),
     
     ecrypt_nif:cipher_update(Ctx, <<"012345678">>),
     ecrypt_nif:cipher_update(Ctx, <<"0123">>),
@@ -56,25 +61,41 @@ encrypt_ttest() ->
     ecrypt_nif:cipher_update(Ctx, <<"0123aksdjfkasjdfkjasdkfjkasdjfkasdfjaskdfjksajfksajdfkjaskdfjkasjfkasjdfkjaskdfjkasdjfkasfkajskfjaskjfkasdjf">>),
     ecrypt_nif:cipher_final(Ctx),
 
+    ?assertEqual(<<"0123456701234567">>, Iv),
+
     ok.
 
-
 speed_test() ->
+    Mb = crypto:rand_bytes(50*1024*1024),
+
+    T1 = os:timestamp(),
     {ok, Ctx} = ecrypt_nif:new_cipher_ctx(),
 
     ok = ecrypt_nif:cipher_init(Ctx, <<"aes-128-cbc">>, 
-        <<"0123456701234567">>, <<"0123456701234567">>, encrypt),
+        <<"0123456701234567">>, <<"0123456701234567">>, encrypt, false),
 
-    Mb = crypto:rand_bytes(50*1024*1024),
-    T1 = os:timestamp(),
     EncData = encrypt_new(Ctx, Mb),
     %% EncData = ecrypt_nif:cipher_update(Ctx, Mb),
-    %% Final = ecrypt_nif:cipher_final(Ctx),
+    Final = ecrypt_nif:cipher_final(Ctx),
     T2 = os:timestamp(),
 
-    io:fwrite(standard_error, "Encrypted: ~p, Time: ~.2fms~n", [erlang:byte_size(EncData), 
+    io:fwrite(standard_error, "Engine Encrypted: ~p, Time: ~.2fms~n", [erlang:byte_size(EncData), 
             timer:now_diff(T2, T1)/1000.0]),
 
+    ok.
+
+via_process_speed_test() ->
+    Mb = crypto:rand_bytes(50*1024*1024),
+
+    T1 = os:timestamp(),
+    {ok, Device} = ecrypt:open(<<"aes-128-cbc">>,
+                <<"0123456701234567">>, <<"0123456701234567">>, encrypt, false),
+    {ok, EncData} = ecrypt:update(Device, Mb),
+    {ok, Final} = ecrypt:final(Device),
+    T2 = os:timestamp(),
+
+    io:fwrite(standard_error, "Via proc: ~p, Time: ~.2fms~n", [erlang:byte_size(EncData), 
+            timer:now_diff(T2, T1)/1000.0]),
     ok.
 
 old_speed_test() ->
@@ -108,6 +129,7 @@ cleanup_test() ->
 
 module_info_test() ->
     ecrypt_nif:module_info(),
-
     ok.
+
+
 

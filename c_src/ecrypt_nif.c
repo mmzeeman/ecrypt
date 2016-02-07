@@ -40,6 +40,8 @@ do {                                                    \
 static ErlNifResourceType *evp_cipher_ctx_type = NULL;
 
 /* atoms */
+static ERL_NIF_TERM atom_true;
+static ERL_NIF_TERM atom_false;
 static ERL_NIF_TERM atom_encrypt;
 static ERL_NIF_TERM atom_decrypt;
 static ERL_NIF_TERM atom_ok;
@@ -230,7 +232,7 @@ ecrypt_cipher_init2(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 }
 
 static ERL_NIF_TERM
-ecrypt_cipher_init5(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+ecrypt_cipher_init6(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     EVP_CIPHER_CTX *ctx;
     ErlNifBinary alg;
@@ -238,27 +240,41 @@ ecrypt_cipher_init5(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     ErlNifBinary iv;
     ERL_NIF_TERM eos = enif_make_int(env, 0);
     EVP_CIPHER *cipher; 
-    int enc;
+    int enc, pad;
 
-    if(argc != 5)
+    if(argc != 6)
         return enif_make_badarg(env);
 
+    /* Ctx */
     if(!enif_get_resource(env, argv[0], evp_cipher_ctx_type, (void **) &ctx))
         return enif_make_badarg(env);
 
+    /* Alg */
     if(!enif_inspect_iolist_as_binary(env, enif_make_list2(env, argv[1], eos), &alg))
         return enif_make_badarg(env);
 
+    /* Key */
     if(!enif_inspect_iolist_as_binary(env, argv[2], &key))
         return enif_make_badarg(env);
 
+    /* IV */
     if(!enif_inspect_iolist_as_binary(env, argv[3], &iv))
         return enif_make_badarg(env);
 
+    /* Mode */
     if(enif_is_identical(atom_encrypt, argv[4])) {
         enc = 1;
     } else if(enif_is_identical(atom_decrypt, argv[4])) {
         enc = 0;
+    } else {
+        return enif_make_badarg(env);
+    }
+
+    /* Padding */
+    if(enif_is_identical(atom_true, argv[5])) {
+        pad = 1;
+    } else if(enif_is_identical(atom_false, argv[5])) {
+        pad = 0;
     } else {
         return enif_make_badarg(env);
     }
@@ -275,6 +291,9 @@ ecrypt_cipher_init5(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 
     if(0 == EVP_CipherInit(ctx, cipher, key.data, iv.data, enc))
         return make_error_tuple(env, "init");
+
+    if(0 == EVP_CIPHER_CTX_set_padding(ctx, pad))
+        return make_error_tuple(env, "padding");
 
     return atom_ok;
 }
@@ -349,6 +368,8 @@ on_load(ErlNifEnv* env, void** priv, ERL_NIF_TERM info)
     ENGINE_register_all_complete();
     OpenSSL_add_all_ciphers();
 
+    atom_true = enif_make_atom(env, "true");
+    atom_false = enif_make_atom(env, "false");
     atom_encrypt = enif_make_atom(env, "encrypt");
     atom_decrypt = enif_make_atom(env, "decrypt");
     atom_ok = enif_make_atom(env, "ok");
@@ -372,7 +393,7 @@ static ErlNifFunc nif_funcs[] = {
     {"cleanup_cipher_ctx", 1, ecrypt_cleanup_cipher_ctx},
 
     {"cipher_init", 2, ecrypt_cipher_init2},
-    {"cipher_init", 5, ecrypt_cipher_init5},
+    {"cipher_init", 6, ecrypt_cipher_init6},
     {"cipher_update", 2, ecrypt_cipher_update},
     {"cipher_final", 1, ecrypt_cipher_final},
 
